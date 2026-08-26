@@ -1,0 +1,6 @@
+.env
+secrets.local.json
+ml_cookie.current.json
+__pycache__
+*.pyc
+.git
