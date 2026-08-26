@@ -5,6 +5,7 @@ create table if not exists public.scrape_links (
   id uuid primary key default gen_random_uuid(),
   url text not null,
   category text not null,
+  item_quantity integer not null default 6,
   active boolean not null default true,
   created_at timestamptz not null default now()
 );

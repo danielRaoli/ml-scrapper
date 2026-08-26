@@ -5,7 +5,8 @@
       "name": "admin-dev",
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev", "--prefix", "admin"],
-      "port": 3000
+      "port": 3000,
+      "autoPort": true
     }
   ]
 }

@@ -4,6 +4,7 @@ export type ScrapeLink = {
   id: string;
   url: string;
   category: string;
+  item_quantity: number;
   active: boolean;
   created_at: string;
 };

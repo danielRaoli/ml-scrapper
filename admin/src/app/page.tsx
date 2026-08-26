@@ -1,5 +1,5 @@
 import { getSupabaseClient, linksTableName, CATEGORIES, type ScrapeLink } from "@/lib/supabase";
-import { addLink, setLinkActive, deleteLink } from "./actions";
+import { addLink, setLinkActive, deleteLink, updateItemQuantity } from "./actions";
 import { logout } from "./login/actions";
 
 export const dynamic = "force-dynamic";
@@ -74,6 +74,21 @@ export default async function AdminPage() {
             ))}
           </select>
         </div>
+        <div className="space-y-1">
+          <label htmlFor="item_quantity" className="text-sm font-medium">
+            Qtd. de itens
+          </label>
+          <input
+            id="item_quantity"
+            name="item_quantity"
+            type="number"
+            min={1}
+            step={1}
+            required
+            defaultValue={6}
+            className="w-full rounded-md border border-black/15 px-3 py-2 text-sm outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/40 sm:w-24"
+          />
+        </div>
         <button
           type="submit"
           className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white dark:bg-white dark:text-black"
@@ -88,6 +103,7 @@ export default async function AdminPage() {
             <tr>
               <th className="px-4 py-2 font-medium">URL</th>
               <th className="px-4 py-2 font-medium">Categoria</th>
+              <th className="px-4 py-2 font-medium">Qtd. itens</th>
               <th className="px-4 py-2 font-medium">Status</th>
               <th className="px-4 py-2 font-medium" />
             </tr>
@@ -95,7 +111,7 @@ export default async function AdminPage() {
           <tbody>
             {links.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-6 text-center text-black/50 dark:text-white/50">
+                <td colSpan={5} className="px-4 py-6 text-center text-black/50 dark:text-white/50">
                   Nenhum link cadastrado ainda.
                 </td>
               </tr>
@@ -114,6 +130,24 @@ export default async function AdminPage() {
                   </a>
                 </td>
                 <td className="px-4 py-2">{link.category}</td>
+                <td className="px-4 py-2">
+                  <form
+                    action={updateItemQuantity.bind(null, link.id)}
+                    className="flex items-center gap-1"
+                  >
+                    <input
+                      name="item_quantity"
+                      type="number"
+                      min={1}
+                      step={1}
+                      defaultValue={link.item_quantity}
+                      className="w-16 rounded-md border border-black/15 px-2 py-1 text-sm outline-none focus:border-black/40 dark:border-white/20 dark:focus:border-white/40"
+                    />
+                    <button type="submit" className="text-xs underline">
+                      Salvar
+                    </button>
+                  </form>
+                </td>
                 <td className="px-4 py-2">
                   <span
                     className={
