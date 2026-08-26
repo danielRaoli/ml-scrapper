@@ -578,6 +578,39 @@ def _to_float(v: Any) -> Optional[float]:
     return None
 
 
+def _extract_previous_price(price: dict[str, Any]) -> Optional[float]:
+    direct = _to_float((price.get("previous_price") or {}).get("value"))
+    if direct is not None:
+        return direct
+
+    labels = price.get("price_labels")
+    if not isinstance(labels, list):
+        return None
+    for label in labels:
+        if not isinstance(label, dict):
+            continue
+        for v in label.get("values") or []:
+            if isinstance(v, dict) and v.get("key") == "previous_price":
+                value = _to_float((v.get("price") or {}).get("value"))
+                if value is not None:
+                    return value
+    return None
+
+
+def _extract_discount_text(price: dict[str, Any]) -> Optional[str]:
+    direct = (price.get("discount_label") or {}).get("text")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+
+    polylabel = price.get("discount_polylabel") or {}
+    for v in polylabel.get("values") or []:
+        if isinstance(v, dict):
+            text = ((v.get("pill") or {}).get("text"))
+            if isinstance(text, str) and text.strip():
+                return text.strip()
+    return None
+
+
 def _build_product(item: dict[str, Any], category: str) -> Optional[Product]:
     card = item.get("card") or {}
     metadata = card.get("metadata") or {}
@@ -591,9 +624,10 @@ def _build_product(item: dict[str, Any], category: str) -> Optional[Product]:
     if _should_skip_product_title(name):
         return None
 
-    price = _to_float((((price_comp.get("price") or {}).get("current_price") or {}).get("value")))
-    old_price = _to_float((((price_comp.get("price") or {}).get("previous_price") or {}).get("value")))
-    discount = ((price_comp.get("price") or {}).get("discount_label") or {}).get("text")
+    price_dict = price_comp.get("price") or {}
+    price = _to_float((price_dict.get("current_price") or {}).get("value"))
+    old_price = _extract_previous_price(price_dict)
+    discount = _extract_discount_text(price_dict)
 
     url = _canonicalize_url(metadata.get("url"))
     if not url:
@@ -640,10 +674,17 @@ def _build_product_from_dom(item: dict[str, Any], category: str) -> Optional[Pro
     if not isinstance(discount, str) or not discount.strip():
         discount = None
 
+    old_price_raw = item.get("old_price") if isinstance(item, dict) else None
+    old_price: Optional[float]
+    if isinstance(old_price_raw, (int, float)):
+        old_price = float(old_price_raw)
+    else:
+        old_price = _to_float(old_price_raw)
+
     return Product(
         name=name,
         price=price,
-        old_price=None,
+        old_price=old_price,
         discount=discount,
         url=url,
         origin_url=url,
@@ -658,8 +699,7 @@ async def _scrape_products_from_dom(page) -> list[dict[str, Any]]:
             try:
                 items = await page.evaluate(
                     """() => {
-  const pickPrice = (root) => {
-    const amount = root?.querySelector?.('.poly-component__price .andes-money-amount') || null;
+  const pickAmount = (amount) => {
     const fraction = amount?.querySelector?.('.andes-money-amount__fraction')?.textContent?.trim() || '';
     const cents = amount?.querySelector?.('.andes-money-amount__cents')?.textContent?.trim() || '';
     const f = fraction.replace(/\\./g, '');
@@ -670,6 +710,16 @@ async def _scrape_products_from_dom(page) -> list[dict[str, Any]]:
       return v + (cc / 100);
     }
     return null;
+  };
+
+  const pickPrice = (root) => {
+    const amount = root?.querySelector?.('.poly-price__current .andes-money-amount') || null;
+    return pickAmount(amount);
+  };
+
+  const pickOldPrice = (root) => {
+    const amount = root?.querySelector?.('.poly-price__labels .andes-money-amount--previous') || null;
+    return pickAmount(amount);
   };
 
   const anchors = Array.from(document.querySelectorAll('a.poly-component__title'));
@@ -683,12 +733,13 @@ async def _scrape_products_from_dom(page) -> list[dict[str, Any]]:
     const img = card?.querySelector?.('img.poly-component__picture') || null;
     const url_image = (img && (img.currentSrc || img.src)) ? (img.currentSrc || img.src) : null;
 
-    const discountEl = card?.querySelector?.('span.poly-coupons__pill') || null;
+    const discountEl = card?.querySelector?.('.poly-price__discount-polylabel .polylabel-pill, span.poly-coupons__pill') || null;
     const discount = (discountEl?.textContent || '').trim() || null;
 
     const price = pickPrice(card);
+    const old_price = pickOldPrice(card);
 
-    out.push({ name, url, url_image, discount, price });
+    out.push({ name, url, url_image, discount, price, old_price });
   }
   return out;
 }""",
