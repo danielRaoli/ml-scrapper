@@ -69,6 +69,7 @@ _load_dotenv()
 class Link:
     url: str
     category: str
+    item_quantity: int
 
 
 @dataclass(frozen=True)
@@ -1003,6 +1004,38 @@ def _supabase_fetch_existing_origin_urls(origin_urls: list[str]) -> set[str]:
     return existing
 
 
+def _supabase_links_table() -> str:
+    return (os.environ.get("SUPABASE_TABLE_LINKS") or "scrape_links").strip()
+
+
+def _supabase_fetch_links() -> list[Link]:
+    base = _supabase_base_url()
+    table = _supabase_links_table()
+    headers = _supabase_headers()
+    query = "select=url,category,item_quantity&active=eq.true&order=created_at.asc"
+    url = f"{base}/rest/v1/{table}?{query}"
+    try:
+        rows = _http_json("GET", url, headers) or []
+    except Exception as e:
+        raise ValueError(f"Falha ao consultar links no Supabase (tabela {table}): {e}") from e
+
+    default_item_quantity = _env_int("ML_DESIRED_NEW", 6)
+    links: list[Link] = []
+    if isinstance(rows, list):
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            url_value = r.get("url")
+            category_value = r.get("category")
+            if not (isinstance(url_value, str) and url_value.strip() and isinstance(category_value, str) and category_value.strip()):
+                continue
+            item_quantity = r.get("item_quantity")
+            if not isinstance(item_quantity, int) or item_quantity <= 0:
+                item_quantity = default_item_quantity
+            links.append(Link(url=url_value.strip(), category=category_value.strip(), item_quantity=item_quantity))
+    return links
+
+
 def _supabase_insert_product(record: dict[str, Any]) -> None:
     base = _supabase_base_url()
     table = _supabase_table()
@@ -1042,15 +1075,18 @@ async def main() -> None:
     affiliate_cookie_seed = affiliate_cookie
     affiliate_cookie_current = cached if cached and _looks_authenticated(cached) else affiliate_cookie_seed
 
-    links = [
-    Link(url="https://www.mercadolivre.com.br/ofertas?category=MLB5726#filter_applied=category&filter_position=4&origin=qcat", category="eletrodomesticos"),
-    Link(url="https://www.mercadolivre.com.br/ofertas?category=MLB5726#filter_applied=category&filter_position=4&origin=qcat", category="eletrodomesticos"),
-
-]
+    try:
+        links = _supabase_fetch_links()
+    except Exception as e:
+        raise ValueError(f"Falha ao carregar links cadastrados: {e}") from e
+    if not links:
+        raise ValueError(
+            f"Nenhum link ativo cadastrado na tabela {_supabase_links_table()}. "
+            "Cadastre pelo menos um link pelo painel admin (ou diretamente no Supabase)."
+        )
 
     webhook_url = "https://n8n-n8n.wtw36t.easypanel.host/webhook/c4ab90b7-7cfb-49e5-95db-cf8909da04ff"
     desired_batch = _env_int("ML_DESIRED_BATCH", 15)
-    desired_new = _env_int("ML_DESIRED_NEW", 6)
     max_page_fetches = _env_int("ML_MAX_PAGE_FETCHES", 20)
     webhook_delay_seconds = _env_int("ML_WEBHOOK_DELAY_SECONDS", 300)
     max_links = _env_int("ML_MAX_LINKS", len(links))
@@ -1072,13 +1108,14 @@ async def main() -> None:
                 page_fetches = 0
                 seen_origin_urls: set[str] = set()
                 candidates_new: list[Product] = []
+                link_desired_new = link.item_quantity
 
                 current_filtered: list[Product] = []
                 cursor = 0
                 current_limit = 48
 
                 skip_link = False
-                while len(candidates_new) < desired_new and page_fetches < max_page_fetches:
+                while len(candidates_new) < link_desired_new and page_fetches < max_page_fetches:
                     if cursor >= len(current_filtered):
                         try:
                             products_page, paging = await _scrape_products_page(p, browser, link, offset)
@@ -1124,16 +1161,16 @@ async def main() -> None:
                     for x in batch:
                         if x.origin_url not in existing:
                             candidates_new.append(x)
-                            if len(candidates_new) >= desired_new:
+                            if len(candidates_new) >= link_desired_new:
                                 break
 
                     if cursor >= len(current_filtered):
                         offset += current_limit
 
-                if skip_link or len(candidates_new) < desired_new:
+                if skip_link or len(candidates_new) < link_desired_new:
                     continue
 
-                to_send = candidates_new[:desired_new]
+                to_send = candidates_new[:link_desired_new]
                 origin_urls = [x.origin_url for x in to_send]
                 try:
                     affiliate_map = await _create_affiliate_links(
