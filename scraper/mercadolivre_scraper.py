@@ -1003,6 +1003,33 @@ def _supabase_fetch_existing_origin_urls(origin_urls: list[str]) -> set[str]:
     return existing
 
 
+def _supabase_links_table() -> str:
+    return (os.environ.get("SUPABASE_TABLE_LINKS") or "scrape_links").strip()
+
+
+def _supabase_fetch_links() -> list[Link]:
+    base = _supabase_base_url()
+    table = _supabase_links_table()
+    headers = _supabase_headers()
+    query = "select=url,category&active=eq.true&order=created_at.asc"
+    url = f"{base}/rest/v1/{table}?{query}"
+    try:
+        rows = _http_json("GET", url, headers) or []
+    except Exception as e:
+        raise ValueError(f"Falha ao consultar links no Supabase (tabela {table}): {e}") from e
+
+    links: list[Link] = []
+    if isinstance(rows, list):
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            url_value = r.get("url")
+            category_value = r.get("category")
+            if isinstance(url_value, str) and url_value.strip() and isinstance(category_value, str) and category_value.strip():
+                links.append(Link(url=url_value.strip(), category=category_value.strip()))
+    return links
+
+
 def _supabase_insert_product(record: dict[str, Any]) -> None:
     base = _supabase_base_url()
     table = _supabase_table()
@@ -1042,11 +1069,15 @@ async def main() -> None:
     affiliate_cookie_seed = affiliate_cookie
     affiliate_cookie_current = cached if cached and _looks_authenticated(cached) else affiliate_cookie_seed
 
-    links = [
-    Link(url="https://www.mercadolivre.com.br/ofertas?category=MLB5726#filter_applied=category&filter_position=4&origin=qcat", category="eletrodomesticos"),
-    Link(url="https://www.mercadolivre.com.br/ofertas?category=MLB5726#filter_applied=category&filter_position=4&origin=qcat", category="eletrodomesticos"),
-
-]
+    try:
+        links = _supabase_fetch_links()
+    except Exception as e:
+        raise ValueError(f"Falha ao carregar links cadastrados: {e}") from e
+    if not links:
+        raise ValueError(
+            f"Nenhum link ativo cadastrado na tabela {_supabase_links_table()}. "
+            "Cadastre pelo menos um link pelo painel admin (ou diretamente no Supabase)."
+        )
 
     webhook_url = "https://n8n-n8n.wtw36t.easypanel.host/webhook/c4ab90b7-7cfb-49e5-95db-cf8909da04ff"
     desired_batch = _env_int("ML_DESIRED_BATCH", 15)
