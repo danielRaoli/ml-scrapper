@@ -332,10 +332,8 @@ def _discount_percent(value: Optional[str]) -> Optional[int]:
 
 
 def _passes_product_rules(p: Product) -> bool:
-    if p.price is not None and p.price > 75:
-        return True
     pct = _discount_percent(p.discount)
-    return pct is not None and pct > 60
+    return pct is not None and pct > 45
 
 
 def _with_offset(url: str, offset: int) -> str:
